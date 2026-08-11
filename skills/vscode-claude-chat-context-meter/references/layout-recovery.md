@@ -9,6 +9,11 @@ rather than guessing an editor home: `--where` prints the bundle and the Node-ca
 runtime it uses, and both are needed below (a machine with no `node` on PATH is the
 normal case here — that is the whole point of the runners).
 
+Without `sh`, the same first step reads
+`powershell -NoProfile -ExecutionPolicy Bypass -File run.ps1 --where`; the recon
+commands below then need a POSIX shell of their own, so on such a machine hand
+the two paths to whatever search tool the agent does have.
+
 ```bash
 sh run.sh --where
 #   runtime: <node or the editor binary>      ← RUNTIME below

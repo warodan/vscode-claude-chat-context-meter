@@ -4,12 +4,15 @@ description: >-
   Live context meter and custom buttons in the Claude Code chat composer in VS
   Code and its forks: "how much context is left", "show the token count in the
   chat", "the context ring is gone after the update", "bring the button back",
-  "add a button to the composer", "make the button survive extension updates",
-  "undo the patch". Russian: «сколько контекста осталось», «верни кнопку
-  контекста», «индикатор контекста пропал после обновления», «добавь кнопку в
-  чат», «чтобы кнопка не пропадала после обновлений», «откати патч». The extension
-  has no chat-UI extension point, so the button is injected into its webview
-  bundle; every extension update wipes the patch and one command puts it back.
+  "add a button to the composer", "add a button that runs /usage", "move the
+  button to the right", "make the button survive extension updates", "check
+  whether the patch is still safe on this version", "undo the patch". Russian:
+  «сколько контекста осталось», «верни кнопку контекста», «индикатор контекста
+  пропал после обновления», «добавь кнопку в чат», «кнопку для /usage», «перенеси
+  кнопку правее», «чтобы кнопка не пропадала после обновлений», «проверь,
+  безопасно ли патчить эту версию», «откати патч». The extension has no chat-UI
+  extension point, so the button is injected into its webview bundle; every
+  extension update wipes the patch and one command puts it back.
 compatibility: >-
   The Claude Code extension in VS Code or a fork (Insiders, Cursor, Windsurf,
   VSCodium, remote/WSL). Nothing to install: Node from PATH if present,
@@ -47,6 +50,17 @@ for d in "${CLAUDE_SKILL_DIR}" ~/.claude/skills/vscode-claude-chat-context-meter
   [ -n "$d" ] && [ -f "$d/run.sh" ] && { sh "$d/run.sh" --verify; break; }
 done
 ```
+
+No `sh` on the machine (Windows without Git Bash)? Same step, PowerShell form.
+`run.ps1` sits next to `run.sh`, so the folder is one of the same five candidates
+listed above — take the one that exists and keep the quotes, paths have spaces:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File "$env:USERPROFILE\.claude\skills\vscode-claude-chat-context-meter\run.ps1" --verify
+```
+
+Every later step works the same way: swap `sh …/run.sh` for this line and keep
+the flags as they are.
 
 It checks the extension version (and whether it was patched before — see the
 `verified-versions.json` ledger), that the backup is clean, that the whole

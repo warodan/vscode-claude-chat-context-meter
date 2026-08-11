@@ -91,7 +91,7 @@ scanners on every install, and for this one they report `Med Risk` / `Critical R
 entire job is to edit a file inside an extension you already have installed. Nothing is hidden about
 that: [How it works](#how-it-works) lists every edit, the backup taken before the first write, and
 `--revert`, which restores the original byte for byte; [Limitations](#limitations) says plainly what
-can go wrong. Read those two before you say yes.
+can go wrong. Read those two before you install it.
 
 **Installing the skill does not put the button in — that is a second step, and you ask for it.**
 The skill is instructions for your agent, not an installer. Once the agent has restarted, tell it:
@@ -114,7 +114,7 @@ paste this to it:
 ```
 Install the vscode-claude-chat-context-meter skill for me. Run in the terminal:
 
-npx skills@latest add warodan/vscode-claude-chat-context-meter -g -y -a <fill in: claude-code, cursor, codex>
+npx skills@latest add warodan/vscode-claude-chat-context-meter -g -y -a <your own agent: claude-code, cursor, codex>
 
 If npx is not found, give me a link to download Node.js and wait.
 Do not install anything else.
