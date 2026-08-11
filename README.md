@@ -86,6 +86,13 @@ The [skills.sh](https://skills.sh/) installer detects the agents you have and as
 Node.js is needed for that one command — the skill itself does not require it (see
 [Requirements](#requirements)). After it installs, **restart your agent** — skills are read at startup.
 
+**The installer will flag this skill as high risk, and it is not wrong.** skills.sh runs third-party
+scanners on every install, and for this one they report `Med Risk` / `Critical Risk` — the skill's
+entire job is to edit a file inside an extension you already have installed. Nothing is hidden about
+that: [How it works](#how-it-works) lists every edit, the backup taken before the first write, and
+`--revert`, which restores the original byte for byte; [Limitations](#limitations) says plainly what
+can go wrong. Read those two before you say yes.
+
 **Installing the skill does not put the button in — that is a second step, and you ask for it.**
 The skill is instructions for your agent, not an installer. Once the agent has restarted, tell it:
 
