@@ -1,0 +1,33 @@
+# OS and editors
+.DS_Store
+Thumbs.db
+desktop.ini
+.idea/
+.vscode/
+*.swp
+*~
+
+# Local state of the patcher. It normally lives in ~/.claude/, but CCM_STATE_DIR
+# can point it here — and it holds absolute user paths, so it must never be committed.
+*.local.json
+*.ledger.json
+*.runtime
+*.lock
+*.log
+
+# Backups of a patched bundle (kept next to the bundle, not here — just in case).
+*.orig
+*.ccm.bak
+
+# Local drafts and notes
+scratch/
+*.local.md
+
+# secrets — the rule costs nothing on the run where it is not needed
+.env
+.env.*
+!.env.example
+
+# node
+node_modules/
+package-lock.json

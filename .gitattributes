@@ -1,0 +1,19 @@
+# run.sh is executed through `sh` — CRLF breaks it on macOS and Linux
+# ("bad interpreter: /bin/sh^M"). This repository is published from Windows,
+# so the line endings must be pinned here rather than left to the client.
+*.sh text eol=lf
+
+# The patcher runs under Node / Electron on every platform.
+*.mjs text eol=lf
+
+# Text content, LF, so the checkout does not depend on the cloner's settings.
+*.md text eol=lf
+*.json text eol=lf
+.gitignore text eol=lf
+.gitattributes text eol=lf
+
+# run.ps1 is Windows-only by definition; keep it in the native convention.
+*.ps1 text eol=crlf
+
+# LICENSE has no extension — pin it too.
+LICENSE text eol=lf
