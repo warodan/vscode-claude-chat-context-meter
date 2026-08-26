@@ -90,7 +90,7 @@ foreach ($cand in $candidates) {
 }
 
 if (-not $runtime) {
-    Write-Host @'
+    [Console]::Error.WriteLine(@'
 No Node-capable runtime found.
 
 Tried: $env:CCM_NODE, `node` on PATH, the cached runtime, and the usual
@@ -100,7 +100,7 @@ Fix: point the script at your editor binary, e.g.
   $env:CCM_NODE = "C:\Path\To\Code.exe"
 (any Electron-based editor works: it is started with ELECTRON_RUN_AS_NODE=1),
 or install Node.js.
-'@
+'@)
     exit 1
 }
 

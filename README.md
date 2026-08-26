@@ -200,15 +200,16 @@ flowchart LR
    that the backup is clean, that the toolbar structure is where it should be — then builds a trial
    patch and parses it. Answers `SAFE TO PATCH` or names exactly what did not match.
 3. **Derive, do not hardcode.** Minified names differ in every build, so they are re-derived each run
-   from a single anchor (`title:"Show command menu (/)"`, which must occur exactly once). Roughly
-   fifteen structural guards stand behind that: the anchor must sit inside the button element found,
+   from a single anchor (`title:"Show command menu (/)"`, which must occur exactly once). Close to
+   twenty structural guards stand behind that: the anchor must sit inside the button element found,
    the toolbar must have exactly one call site, the element is measured by a string-aware bracket
    scan because the anchor text itself contains brackets.
 4. **Four insertions, nothing rewritten.** One prop threaded from the input component (where the
-   command registry lives) into the toolbar, the handlers, the button itself, and a `return null` that
-   silences the stock counter so the two cannot double up. All four are insertions — which is what
-   makes the revert exact. The original is backed up to `index.js.orig` first, and the result is
-   parsed before *and* re-read after writing; a mismatch restores from the backup.
+   command registry lives) into the toolbar, the handlers, the button itself, and — only when the ring
+   is actually drawn — a `return null` that silences the stock counter so the two cannot double up.
+   Every one of them is an insertion — which is what makes the revert exact. The original is backed
+   up to `index.js.orig` first, and the result is parsed before *and* re-read after writing;
+   a mismatch restores from the backup.
 5. **The reading costs nothing.** No subscription, no timer, no polling: the toolbar already reads
    the session's usage signal to feed its own counter, so it re-renders on every change — the label
    is one division inside that render. The CLI updates that signal on every assistant message of the
@@ -283,8 +284,8 @@ vscode-claude-chat-context-meter/          # the repository
   the entire behaviour. Clicking it runs `/context`, not `/compact` (which the stock counter did, on
   the spot and without confirmation); when the colour says wrap up, doing it is your move.
 - **Extension builds move fast.** Everything is derived from the bundle rather than hardcoded, and the
-  ledger currently carries six builds, up to 2.1.226 — but a genuinely restructured toolbar needs the skill's
-  anchor re-taught, which is a documented procedure rather than an automatic one.
+  ledger ships every build already worked out, currently up to 2.1.246 — but a genuinely restructured
+  toolbar needs the skill's anchor re-taught, which is a documented procedure rather than an automatic one.
 
 ## License
 

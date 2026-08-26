@@ -94,6 +94,7 @@ None of this needs doing by hand — but know it is there, and do not work aroun
 | Safeguard | What it catches |
 |---|---|
 | Every name is derived from the bundle; only the anchor is hardcoded | a rebuild with different minified names |
+| Names written back into generated code are matched with a lookbehind, never as a member tail | a captured `jsxs` from `e.jsxs(` - a patch that parses and then throws at render |
 | The anchor must occur exactly once | a renamed or duplicated toolbar |
 | The `/` button element is measured by a **string-aware** bracket scan | misplaced insertion: the anchor text contains brackets (`(/)`), naive counting breaks the bundle |
 | The anchor must lie inside the button element found | binding to the wrong element |
@@ -190,12 +191,25 @@ rewritten or deleted, which is what makes `--revert` exact:
 | # | What | Where | How it is found |
 |---|------|-------|-----------------|
 | 1 | `,onRunSlash:__ccRun,onCanRunSlash:__ccCan` | into the toolbar component signature | `function X({…})` — the nearest `function` before the anchor; inserted before `}){` |
-| 2 | the `onRunSlash` (find and execute) and `onCanRunSlash` (is the command registered) handlers | into the single toolbar call site | `\w+\(<toolbar name>,\{`; the context name comes from the nearest `(\w+)\.commandRegistry` before the call |
-| 3 | the button itself | after the `/` button element (`slash`), or at the start of `children:[` (`left`), or after the spacer (`right`) | the `/` element = the last `\w+\("button",\{` before the anchor; its end via a string-aware bracket scan |
-| 4 | `/*CC-PIE*/return null;` — silences the stock usage counter | first thing in the counter component's body | the counter = `\w+\((\w+),\{usedTokens:` in the toolbar; its body starts at the `}){` of its signature (rejected if further than 400 chars, i.e. not that signature) |
+| 2 | the `onRunSlash` (find and execute) and `onCanRunSlash` (is the command registered) handlers | into the single toolbar call site | `[\w$]+\(<toolbar name>,\{`; the context name comes from the nearest `([\w$]+)\.commandRegistry` before the call |
+| 3 | the button itself | after the `/` button element (`slash`), or at the start of `children:[` (`left`), or after the spacer (`right`) | the `/` element = the last `[\w$]+\("button",\{` before the anchor; its end via a string-aware bracket scan |
+| 4 | `/*CC-PIE*/return null;` — silences the stock usage counter | first thing in the counter component's body | the counter = `[\w$]+\(([\w$]+),\{usedTokens:` in the toolbar; its body starts at the `}){` of its signature (rejected if further than 400 chars, i.e. not that signature) |
 
-The JSX helper comes from `children:[(\w+)\(`, the CSS-module object from
-`className:(\w+)\.menuButton`, the text-insertion callback from `onInsertAtMention:(\w+)`.
+The JSX helper comes from `children:[([\w$]+)\(`, the CSS-module object from
+`className:([\w$]+)\.menuButton`, the text-insertion callback from `onInsertAtMention:([\w$]+)`.
+
+**Identifier charset: `[\w$]`, never `\w`.** Minified names legally contain `$`
+(and `$` alone is a name): 2.1.245/2.1.246 shipped `css=$J` and `session=$`, every
+`\w+` probe went blind at once, and `--verify` read it as "layout changed" while the
+toolbar was untouched. Names that reach a `new RegExp` go through `escapeRe()` for the
+same reason - a bare `$` there is an end-of-string anchor, not a name.
+
+Two probes also carry a `(?<![.\w$])` lookbehind: the `jsxs` helper and the
+command-registry holder. Both bind a name that is written back into generated
+code, so on a build shipping `e.jsxs("div",{` a bare `[\w$]+` would capture
+`jsxs` - a free identifier, syntactically valid, so the trial patch parses and
+the toolbar throws at render instead. Probes whose name is only compared can
+skip the lookbehind: a member expression makes them refuse rather than lie.
 
 ### Where the live reading comes from (`usage` mode)
 

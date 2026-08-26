@@ -199,7 +199,7 @@ class Layout {
     const windowStart = Math.max(0, this.anchorAt - 900);
     const window = src.slice(windowStart, this.anchorAt);
 
-    const children = [...window.matchAll(/children:\[(\w+)\(/g)];
+    const children = [...window.matchAll(/children:\[([\w$]+)\(/g)];
     if (children.length === 0) throw new LayoutError("no toolbar 'children:[' array before the anchor");
     const lastChild = children[children.length - 1];
     this.jsx = lastChild[1];
@@ -207,19 +207,25 @@ class Layout {
 
     // The array-children helper (jsxs), i.e. what opens the toolbar element
     // itself. Needed only for a button holding both a ring and a label.
-    const wrappers = [...window.matchAll(/(\w+)\("div",\{/g)].filter((m) => m.index < lastChild.index);
+    //
+    // The lookbehind matters: this name goes straight into generated code, and
+    // on a build shipping `e.jsxs("div",{` a bare `[\w$]+` would capture `jsxs`
+    // - a free identifier that parses fine, so the trial patch passes and the
+    // toolbar throws at render instead. Every other probe here binds a name it
+    // only compares, so a member expression makes them refuse, not lie.
+    const wrappers = [...window.matchAll(/(?<![.\w$])([\w$]+)\("div",\{/g)].filter((m) => m.index < lastChild.index);
     this.jsxs = wrappers.length ? wrappers[wrappers.length - 1][1] : null;
 
-    const styles = window.match(/className:(\w+)\.menuButton/);
+    const styles = window.match(/className:([\w$]+)\.menuButton/);
     if (!styles) throw new LayoutError("no CSS-module object (className:X.menuButton)");
     this.styles = styles[1];
 
-    const insertFn = window.match(/onInsertAtMention:(\w+)[,}]/);
+    const insertFn = window.match(/onInsertAtMention:([\w$]+)[,}]/);
     if (!insertFn) throw new LayoutError("no text-insertion callback (onInsertAtMention:X)");
     this.insertFn = insertFn[1];
 
     // Third slot: right after the built-in slash-command button element.
-    const slashButtons = [...src.slice(0, this.anchorAt).matchAll(/(\w+)\("button",\{/g)];
+    const slashButtons = [...src.slice(0, this.anchorAt).matchAll(/([\w$]+)\("button",\{/g)];
     if (slashButtons.length === 0) throw new LayoutError("no button element wrapping the anchor");
     const btn = slashButtons[slashButtons.length - 1];
     const elementEnd = callEnd(src, btn.index + btn[1].length);
@@ -233,7 +239,7 @@ class Layout {
 
     // Right-hand group starts after the flex spacer element.
     const tail = src.slice(this.anchorAt);
-    const spacer = tail.match(/\w+\("div",\{className:\w+\.spacer\}\),/);
+    const spacer = tail.match(/[\w$]+\("div",\{className:[\w$]+\.spacer\}\),/);
     if (!spacer) throw new LayoutError("no toolbar spacer element (right-hand group)");
     if (spacer.index > SPACER_MAX_DISTANCE) {
       throw new LayoutError(
@@ -245,7 +251,7 @@ class Layout {
 
     // Toolbar component: the function that contains the anchor.
     const fnStart = src.lastIndexOf("function ", this.anchorAt - "function ".length);
-    const name = fnStart >= 0 ? /^function (\w+)\(\{/.exec(src.slice(fnStart, fnStart + 60)) : null;
+    const name = fnStart >= 0 ? /^function ([\w$]+)\(\{/.exec(src.slice(fnStart, fnStart + 60)) : null;
     if (!name) throw new LayoutError("no toolbar component declaration (function X({...}))");
     this.toolbar = name[1];
     const sigEnd = src.indexOf("}){", fnStart);
@@ -257,13 +263,13 @@ class Layout {
     this.readUsage(src, fnStart, sigEnd);
 
     // Its single call site, and the context object holding the command registry.
-    const calls = [...src.matchAll(new RegExp(`\\w+\\(${this.toolbar},\\{`, "g"))];
+    const calls = [...src.matchAll(new RegExp(`[\\w$]+\\(${escapeRe(this.toolbar)},\\{`, "g"))];
     if (calls.length !== 1) {
       throw new LayoutError(`expected exactly 1 call site of ${this.toolbar}, found ${calls.length}`);
     }
     this.callPropsAt = calls[0].index + calls[0][0].length;
     const scope = src.slice(Math.max(0, this.callPropsAt - REGISTRY_LOOKBACK), this.callPropsAt);
-    const registry = [...scope.matchAll(/(\w+)\.commandRegistry/g)];
+    const registry = [...scope.matchAll(/(?<![.\w$])([\w$]+)\.commandRegistry/g)];
     if (registry.length === 0) {
       throw new LayoutError("command registry not in the caller's scope (run mode impossible)");
     }
@@ -308,14 +314,14 @@ class Layout {
     this.pieOffAt = null; // where to switch the built-in counter off
 
     const signature = src.slice(fnStart, sigEnd);
-    const session = signature.match(/[({,]session:(\w+)[,}]/);
+    const session = signature.match(/[({,]session:([\w$]+)[,}]/);
     if (!session) return;
     this.session = session[1];
 
     // The toolbar's own JSX: from the end of the signature past the spacer, so
     // the counter is caught in either group.
     const body = src.slice(sigEnd, Math.min(src.length, this.spacerEnd + 3000));
-    const value = `${this.session}\\.usageData\\.value`;
+    const value = `${escapeRe(this.session)}\\.usageData\\.value`;
     if (!new RegExp(`${value}\\.totalTokens`).test(body)) return;
     const window = body.match(new RegExp(`${value}\\.contextWindow-${value}\\.maxOutputTokens-(\\d+)`));
     if (!window) return;
@@ -347,7 +353,7 @@ class Layout {
    * (`--app-claude-clay-button-orange`, declared on `html`).
    */
   readPie(src, body) {
-    const host = body.match(/\w+\((\w+),\{usedTokens:/);
+    const host = body.match(/[\w$]+\(([\w$]+),\{usedTokens:/);
     if (!host) return;
     const fnAt = src.indexOf(`function ${host[1]}(`);
     if (fnAt < 0) return;
@@ -365,6 +371,7 @@ class Layout {
   symbols() {
     return {
       jsx: this.jsx,
+      jsxs: this.jsxs || "-",
       css: this.styles,
       insert: this.insertFn,
       toolbar: this.toolbar,
@@ -411,6 +418,11 @@ function callEnd(src, openParen) {
     i += 1;
   }
   throw new LayoutError("unbalanced parentheses while measuring the button element");
+}
+
+/** Escape a minified identifier for use inside a RegExp source (names carry `$`). */
+function escapeRe(text) {
+  return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
 function countOccurrences(haystack, needle) {
@@ -971,7 +983,9 @@ function verifyBundle(bundle, buttons) {
 
   console.log(`  layout:  ${lay.describe()}`);
   if (known && known.symbols) {
-    const changed = Object.entries(lay.symbols()).filter(([k, v]) => known.symbols[k] !== v);
+    // Only names the recorded entry actually carries: an older entry predating
+    // a name we track now would otherwise read as "changed" on every run.
+    const changed = Object.entries(lay.symbols()).filter(([k, v]) => k in known.symbols && known.symbols[k] !== v);
     if (changed.length) {
       const pretty = changed.map(([k, v]) => `${k}: ${known.symbols[k]} -> ${v}`).join(", ");
       console.log(`  note:    minified names differ from last run (${pretty}) - expected after a rebuild, harmless`);
@@ -1433,6 +1447,12 @@ function parseButton(spec) {
   const buttonId = parts[0].trim();
   const text = parts.slice(1).join(":").trim();
   if (!/^\w+$/.test(buttonId) || !text) throw new Fatal(`bad button spec ${JSON.stringify(spec)}`);
+  // The text is spliced into a double-quoted literal in the generated code. A
+  // quote, a backslash or a newline would break it; the syntax check catches
+  // that before anything is written, but a plain refusal here says why.
+  if (/["\\\r\n]/.test(text)) {
+    throw new Fatal(`button text may not contain quotes, backslashes or newlines: ${JSON.stringify(text)}`);
+  }
   return [buttonId, text, mode];
 }
 

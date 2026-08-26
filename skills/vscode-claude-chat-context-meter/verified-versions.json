@@ -106,5 +106,117 @@
     ],
     "side": "slash",
     "sha1_pristine": "03566f4769c3"
+  },
+  "2.1.233": {
+    "date": "2026-08-15",
+    "symbols": {
+      "jsx": "b",
+      "css": "Xd",
+      "insert": "d",
+      "toolbar": "sot",
+      "ctx": "n",
+      "session": "e"
+    },
+    "buttons": [
+      "context:/context:usage"
+    ],
+    "side": "slash",
+    "sha1_pristine": "51a546a2039b"
+  },
+  "2.1.234": {
+    "date": "2026-08-18",
+    "symbols": {
+      "jsx": "b",
+      "css": "Xd",
+      "insert": "d",
+      "toolbar": "sot",
+      "ctx": "n",
+      "session": "e"
+    },
+    "buttons": [
+      "context:/context:usage"
+    ],
+    "side": "slash",
+    "sha1_pristine": "d6023e74dfa1"
+  },
+  "2.1.236": {
+    "date": "2026-08-20",
+    "symbols": {
+      "jsx": "b",
+      "css": "Qd",
+      "insert": "d",
+      "toolbar": "Fot",
+      "ctx": "n",
+      "session": "e"
+    },
+    "buttons": [
+      "context:/context:usage"
+    ],
+    "side": "slash",
+    "sha1_pristine": "9fa7f77d2826"
+  },
+  "2.1.237": {
+    "date": "2026-08-20",
+    "symbols": {
+      "jsx": "b",
+      "css": "Qd",
+      "insert": "d",
+      "toolbar": "Fot",
+      "ctx": "n",
+      "session": "e"
+    },
+    "buttons": [
+      "context:/context:usage"
+    ],
+    "side": "slash",
+    "sha1_pristine": "09d4f4e39774"
+  },
+  "2.1.240": {
+    "date": "2026-08-22",
+    "symbols": {
+      "jsx": "b",
+      "css": "Qd",
+      "insert": "d",
+      "toolbar": "zot",
+      "ctx": "n",
+      "session": "e"
+    },
+    "buttons": [
+      "context:/context:usage"
+    ],
+    "side": "slash",
+    "sha1_pristine": "5e68c67c8648"
+  },
+  "2.1.245": {
+    "date": "2026-08-26",
+    "symbols": {
+      "jsx": "j",
+      "css": "$J",
+      "insert": "V",
+      "toolbar": "l90",
+      "ctx": "X",
+      "session": "$"
+    },
+    "buttons": [
+      "context:/context:usage"
+    ],
+    "side": "slash",
+    "sha1_pristine": "0ca449016ed6"
+  },
+  "2.1.246": {
+    "date": "2026-08-26",
+    "symbols": {
+      "jsx": "j",
+      "css": "$J",
+      "insert": "V",
+      "toolbar": "a90",
+      "ctx": "X",
+      "session": "$"
+    },
+    "buttons": [
+      "context:/context:usage"
+    ],
+    "side": "slash",
+    "sha1_pristine": "774594012b13"
   }
 }

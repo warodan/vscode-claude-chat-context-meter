@@ -52,11 +52,18 @@ done
 ```
 
 No `sh` on the machine (Windows without Git Bash)? Same step, PowerShell form.
-`run.ps1` sits next to `run.sh`, so the folder is one of the same five candidates
-listed above — take the one that exists and keep the quotes, paths have spaces:
+`run.ps1` sits next to `run.sh`, so it is in one of the same five folders — walk
+them the same way rather than picking one, and keep the quotes: paths have spaces.
 
 ```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File "$env:USERPROFILE\.claude\skills\vscode-claude-chat-context-meter\run.ps1" --verify
+$n = 'vscode-claude-chat-context-meter'
+@("${CLAUDE_SKILL_DIR}",
+  "$env:USERPROFILE\.claude\skills\$n",
+  "$env:USERPROFILE\.agents\skills\$n",
+  ".\.claude\skills\$n",
+  ".\.agents\skills\$n") |
+  Where-Object { $_ -and (Test-Path "$_\run.ps1") } | Select-Object -First 1 |
+  ForEach-Object { powershell -NoProfile -ExecutionPolicy Bypass -File "$_\run.ps1" --verify }
 ```
 
 Every later step works the same way: swap `sh …/run.sh` for this line and keep

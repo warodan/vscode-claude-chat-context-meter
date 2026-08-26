@@ -4,6 +4,17 @@ Read this when `--verify` refused: the toolbar was rewritten in a new extension
 build, and the job is to find the new anchor and re-teach it to the `Layout` class
 in the patcher.
 
+**First rule out the cheap cause.** A refusal that names one symbol
+(`no CSS-module object (className:X.menuButton)`, `no text-insertion callback`)
+while the anchor itself was found is usually not a restructure: it is a minified
+name the probe cannot spell. Names legally contain `$`, and `$` alone is a name —
+2.1.245 shipped `css=$J` and `session=$`, which every `\w+` probe missed at once.
+Grep the bundle for the literal the probe looks for (`className:` before
+`.menuButton`) and look at what stands there. If it is a plain name, the probe is
+at fault, not the toolbar; the charset in `Layout` is `[\w$]` and any name going
+into a `new RegExp` goes through `escapeRe()` — see `internals.md`. Only if the
+literal is gone from the bundle does the recon below apply.
+
 Recon is read-only — write nothing. Start from the paths the skill itself resolved,
 rather than guessing an editor home: `--where` prints the bundle and the Node-capable
 runtime it uses, and both are needed below (a machine with no `node` on PATH is the
@@ -17,7 +28,7 @@ the two paths to whatever search tool the agent does have.
 ```bash
 sh run.sh --where
 #   runtime: <node or the editor binary>      ← RUNTIME below
-#   bundles: <…>/webview/index.js (v2.1.226)  ← BUNDLE below
+#   bundles: <…>/webview/index.js (v2.1.246)  ← BUNDLE below
 BUNDLE=…; RUNTIME=…                           # copy the two paths out of that output
 
 grep -o 'title:"[^"]\{0,40\}"' "$BUNDLE" | sort | uniq -c | head -40   # button tooltips → the new anchor
