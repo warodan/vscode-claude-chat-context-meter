@@ -97,7 +97,17 @@ behaviour (the command registry is gone, there is nowhere to put a button) — t
 explain what is possible instead. Never leave a broken bundle behind: while it is
 broken, **the Claude Code chat does not open at all**.
 
-**4. Tell the user:** Ctrl+Shift+P → **Developer: Reload Window**, and ask them to
+**4. Install the self-heal hook — do this by default, right after a successful
+patch:** `--install-hook`. Without it the button disappears at the next extension
+update, which lands every day or two, and the user reads that as a broken skill.
+Do not ask first; **tell them afterwards, in one line**: the skill added a
+SessionStart hook that checks for a new extension build and puts the button back,
+it costs about 80 ms of Node startup on the boring path and prints nothing, and
+`--uninstall-hook` removes exactly that entry. Skip it only if they said no, or if
+the agent in front of you is not Claude Code — the hook is a Claude Code hook, and
+then you say the button will need a manual run after each update.
+
+**5. Tell the user:** Ctrl+Shift+P → **Developer: Reload Window**, and ask them to
 confirm the button is there and works (you cannot click it for them).
 
 If anything goes wrong at any step, `--revert` restores the original from the
@@ -197,9 +207,12 @@ it — and updates land every day or two. `--install-hook` writes a **SessionSta
 hook** into `~/.claude/settings.json` that runs `--ensure` in the background, so
 the button comes back on its own.
 
-**Install it only when the user asks for it** — it is a write into their
-`settings.json`. Mention that `--uninstall-hook` removes exactly our entry, and
-that the file is copied to `settings.json.ccm.bak` before the first write.
+**Install it by default with the patch** (step 4 of the protocol) and say so
+afterwards — a button that silently disappears every other day costs the user far
+more than an unasked-for line in `settings.json`. The file is copied to
+`settings.json.ccm.bak` before the first write, other people's hooks are left
+alone, and `--uninstall-hook` removes exactly our entry: say all three in the same
+breath, so the user knows how to undo it.
 
 `--ensure` is built to cost nothing on the boring path: a fingerprint cache makes
 "nothing changed" a couple of `stat` calls (~80 ms, all of it Node startup, and it
@@ -229,8 +242,8 @@ so a stale entry cannot survive an extension update. Details in
   arbitrary VS Code command** — that would require patching `extension.js` (the
   webview↔host bridge) as well, which is far more brittle and is not supported here.
 - The patch does not survive an extension update (a fresh version directory is
-  created) — that is normal. Claude Code updates every day or two, which is what
-  `--install-hook` is for; without it, just run the protocol again.
+  created) — that is normal, and the hook installed in step 4 is what puts it back.
+  The restored button appears at the next window reload, not instantly.
 - The live reading is only as good as what the CLI has sent: no exact window before
   the first completed turn, and it counts the **main loop** — a subagent burning
   tokens does not move it.

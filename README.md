@@ -71,7 +71,7 @@ not match>`. Custom buttons for any slash command work the same way, in any of t
 - **`/context` is a round trip** — you type it, read the panel, close it. The one number you wanted was a glance, not a detour.
 - **The stock counter appears too late to be useful** — it stays hidden until roughly half the window is gone, which is already well past the point where wrapping up beats carrying on. The number is missing exactly while it could still change what you do.
 - **The stock click compacted on the spot** — no confirmation, a hair away from the input box. This button runs `/context` instead; `/compact` stays one `/` menu away.
-- **Every extension update wipes the patch** — Claude Code ships a new build every day or two, each into a fresh directory. `--install-hook` puts the button back before you notice it went.
+- **Every extension update wipes the patch** — Claude Code ships a new build every day or two, each into a fresh directory. The skill installs a SessionStart hook with the patch, so the button comes back on its own before you notice it went.
 - **There is no supported route to this** — the extension contributes only commands, keybindings, views and an editor title menu. Without patching the bundle, a button in the composer cannot exist.
 
 ## Installation
@@ -100,8 +100,10 @@ The skill is instructions for your agent, not an installer. Once the agent has r
 put the context button into the Claude Code chat
 ```
 
-It runs the preflight first, patches only if that comes back clean, and then asks you to reload the
-VS Code window — the button is there after the reload. Nothing is written before you ask.
+It runs the preflight first, patches only if that comes back clean, installs the self-heal hook that
+keeps the button alive across extension updates, and then asks you to reload the VS Code window — the
+button is there after the reload. It tells you about the hook, and `--uninstall-hook` takes it out
+again. Nothing is written before you ask for the button.
 
 **Where it lands** — the installer asks whether to put the skill into the current project or
 globally, for every project; `-g` skips the question and installs globally.
@@ -131,8 +133,8 @@ npx skills@latest remove vscode-claude-chat-context-meter
 ```
 
 That updates the skill. The **button** is a separate thing: it is wiped by every Claude Code
-extension update and comes back on its own once the SessionStart hook is installed — see
-[Surviving extension updates](#surviving-extension-updates).
+extension update and comes back on its own, because the SessionStart hook goes in with the patch —
+see [Surviving extension updates](#surviving-extension-updates).
 
 ## Usage
 
@@ -155,7 +157,8 @@ The everyday case. A fresh extension version means a fresh directory and no patc
 make the context button survive extension updates
 ```
 
-Installs the SessionStart hook, so the button restores itself in the background at the next session.
+Installs the SessionStart hook if it is not already there — normally it goes in with the first patch,
+so this is the line for anyone who removed it or declined it.
 
 ```text
 add a button that runs /usage, put it on the right next to the model picker
@@ -229,10 +232,11 @@ and the hook never exits non-zero — a session that reports a failure every mor
 than the problem it solves. The restored button appears at the **next window reload**; in practice
 the update asks for one anyway.
 
-The hook is written only when you ask for it, and it is a write into your `settings.json`: the file
-is copied to `settings.json.ccm.bak` before the first one, other people's hooks are left alone, and
-`--uninstall-hook` removes exactly our entry and nothing else. `--status` says whether it is in
-place.
+The hook goes in **by default, together with the first patch**, and the skill tells you it did that —
+without it the button vanishes every other day and the skill looks broken. It is still a write into
+your `settings.json`, so: the file is copied to `settings.json.ccm.bak` before the first one, other
+people's hooks are left alone, and `--uninstall-hook` removes exactly our entry and nothing else.
+`--status` says whether it is in place.
 
 ## Requirements
 
