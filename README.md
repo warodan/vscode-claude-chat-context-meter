@@ -19,7 +19,7 @@ The extension has no API for this: the button is injected into its webview bundl
 
 ## What it does
 
-<img src="assets/composer.png" width="720" alt="The Claude Code composer in VS Code: the + and / buttons, then a ring with the count 61k next to them, and the model picker on the right.">
+<img src="assets/composer.png" width="720" alt="The Claude Code composer in VS Code: the + and / buttons, then a ring with the count 61k next to them, and the permission-mode selector and the send button on the right.">
 
 *The composer, patched: `＋  /  ◔ 61k`. The ring and the count are the button — clicking it runs `/context`.*
 
@@ -136,6 +136,11 @@ That updates the skill. The **button** is a separate thing: it is wiped by every
 extension update and comes back on its own, because the SessionStart hook goes in with the patch —
 see [Surviving extension updates](#surviving-extension-updates).
 
+**Removing the skill? Take the hook out first.** The hook in `~/.claude/settings.json` calls a script
+inside the skill folder, and `remove` deletes that folder without touching your settings — every
+session would then start with a hook that fails. Ask your agent to `undo the patch and remove the
+hook` (it runs `--revert` and `--uninstall-hook`), then run `remove`.
+
 ## Usage
 
 The skill is picked up on its own when you ask for something it covers:
@@ -197,7 +202,7 @@ flowchart LR
 
 1. **Find the bundle.** Every editor home is searched — `.vscode`, `.vscode-insiders`, `.vscode-oss`,
    `.vscode-server`, `.cursor`, `.windsurf`, portable and flatpak installs — and every Claude Code
-   install found gets the same treatment. The target is `webview/index.js`, one ~4.8 MB minified
+   install found gets the same treatment. The target is `webview/index.js`, one ~5 MB minified
    bundle that serves the sidebar, the editor tab and the separate chat window alike.
 2. **Preflight (`--verify`).** Checks the version against the ledger of builds already worked out,
    that the backup is clean, that the toolbar structure is where it should be — then builds a trial
@@ -288,7 +293,7 @@ vscode-claude-chat-context-meter/          # the repository
   the entire behaviour. Clicking it runs `/context`, not `/compact` (which the stock counter did, on
   the spot and without confirmation); when the colour says wrap up, doing it is your move.
 - **Extension builds move fast.** Everything is derived from the bundle rather than hardcoded, and the
-  ledger ships every build already worked out, currently up to 2.1.246 — but a genuinely restructured
+  ledger ships every build already worked out, currently up to 2.1.280 — but a genuinely restructured
   toolbar needs the skill's anchor re-taught, which is a documented procedure rather than an automatic one.
 
 ## License

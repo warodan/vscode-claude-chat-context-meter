@@ -323,10 +323,10 @@ class Layout {
     const body = src.slice(sigEnd, Math.min(src.length, this.spacerEnd + 3000));
     const value = `${escapeRe(this.session)}\\.usageData\\.value`;
     if (!new RegExp(`${value}\\.totalTokens`).test(body)) return;
-    const window = body.match(new RegExp(`${value}\\.contextWindow-${value}\\.maxOutputTokens-(\\d+)`));
-    if (!window) return;
+    const reserve = this.readReserve(src, body, value);
+    if (reserve === null) return;
 
-    this.usageReserve = Number(window[1]);
+    this.usageReserve = reserve;
     this.hasUsage = true;
 
     // Signals naming the model in play, for the fallback window. Optional like
@@ -335,6 +335,33 @@ class Layout {
     this.modelSignals = MODEL_SIGNALS.filter((name) => src.includes(`${name}=`));
 
     this.readPie(src, body);
+  }
+
+  /**
+   * The auto-compact reserve in the stock counter's window expression, or null
+   * when the expression is not there. Two shapes are known:
+   *
+   *   inline (<= 2.1.27x):  <v>.contextWindow-<v>.maxOutputTokens-13000
+   *   helper (2.1.280+):    fn(<v>.contextWindow,<v>.maxOutputTokens)
+   *                         function fn($,J){return $-Math.min(J,CAP)-RES}
+   *                         var RES=13000
+   *
+   * In the helper shape the call alone is the proof; the helper's body is read
+   * only for the figure --verify prints. A helper the minifier reshaped falls
+   * back to USAGE_RESERVE instead of costing the ring.
+   */
+  readReserve(src, body, value) {
+    const inline = body.match(new RegExp(`${value}\\.contextWindow-${value}\\.maxOutputTokens-(\\d+)`));
+    if (inline) return Number(inline[1]);
+
+    const call = body.match(new RegExp(`([\\w$]+)\\(${value}\\.contextWindow,${value}\\.maxOutputTokens\\)`));
+    if (!call) return null;
+    const fn = src.match(new RegExp(
+      `function ${escapeRe(call[1])}\\(([\\w$]+),([\\w$]+)\\)\\{return \\1-Math\\.min\\(\\2,[\\w$]+\\)-([\\w$]+|\\d+)\\}`));
+    if (!fn) return USAGE_RESERVE;
+    if (/^\d+$/.test(fn[3])) return Number(fn[3]);
+    const res = src.match(new RegExp(`(?:var|let|const) ${escapeRe(fn[3])}=(\\d+)[;,]`));
+    return res ? Number(res[1]) : USAGE_RESERVE;
   }
 
   /**

@@ -154,7 +154,9 @@ user, not something the button did.
 
 If the usage signal cannot be located in a build, the button degrades — ring →
 text-only → plain `run` button — rather than failing. `--verify` says which of the
-three you are getting.
+three you are getting. A button put in degraded stays that way: once the skill
+reads the signal again, `--reapply` brings the ring back — the hook will not, since
+the button is already there.
 
 Everything else about the reading — the denominator, the colours, the ring
 geometry, how the window size is recovered on a fresh session, the startup race —

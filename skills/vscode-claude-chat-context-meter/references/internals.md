@@ -151,7 +151,7 @@ without writing.
   `views`, `menus: editor/title`. **There is no chat-UI extension point** — neither
   from Anthropic nor from VS Code.
 - The chat is entirely a webview. The whole UI is one minified bundle
-  `webview/index.js` (~4.8 MB, esbuild, Preact-like helpers `b(type, props)` / `E(...)`).
+  `webview/index.js` (~5 MB, esbuild, Preact-like helpers `b(type, props)` / `E(...)`).
   Minified but not obfuscated — the code is readable.
 - The toolbar under the input is the component with `className:${X}.inputFooter`;
   its `children:[…]` array is: `+` button → `/` button → token counter → **spacer**
@@ -224,6 +224,12 @@ b(Pie, { usedTokens: <session>.usageData.value.totalTokens,
                         - <session>.usageData.value.maxOutputTokens - 13000, … })
 ```
 
+- Since 2.1.280 the subtraction lives in a helper:
+  `contextWindow: fn(<session>.usageData.value.contextWindow, <session>.usageData.value.maxOutputTokens)`
+  with `function fn($,J){return $-Math.min(J,CAP)-RES}` and `var RES=13000`.
+  `Layout.readReserve` accepts both shapes and follows `RES` to its number. The
+  call itself is the proof: a helper it cannot read falls back to 13000 and keeps
+  the ring.
 - `<session>` = the name bound to `session:` in the toolbar's signature.
 - We take `totalTokens` and `contextWindow` from it and **skip the subtraction** —
   the button divides by the whole window (see above). The reserve (`13000`) is
