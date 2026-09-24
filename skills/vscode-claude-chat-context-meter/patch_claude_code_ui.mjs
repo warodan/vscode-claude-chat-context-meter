@@ -14,8 +14,8 @@
  *                       which this switches off - so they cost nothing: the toolbar
  *                       already re-renders on every change (the CLI updates it on
  *                       each assistant message, i.e. mid-turn too). Degrades to
- *                       text-only, then to a plain `run` button, as pieces of that
- *                       wiring go missing from a build.
+ *                       the count alone, then to a plain `run` button, as pieces
+ *                       of that wiring go missing from a build.
  *   run               - click runs the slash command immediately, the same way
  *                       typing it and pressing Enter would. Slash commands in this
  *                       UI are entries of the webview's own command registry
@@ -29,7 +29,7 @@
  * receive, so the patch threads one extra prop from the input component (which
  * has the registry in scope) down into the toolbar. That, the button and the
  * counter cut-off are four edits - all insertions, all anchored on strings
- * derived from the bundle - see SKILL.md.
+ * derived from the bundle - see references/internals.md.
  *
  * Safety: every edit point is re-derived from the current bundle, never hardcoded;
  * `--verify` reports whether this exact extension build still matches the expected
@@ -38,8 +38,8 @@
  * is parsed before AND after writing. Anything unexpected aborts without touching
  * the file.
  *
- * An editor extension update replaces the whole directory, so re-run after every
- * Claude Code update.
+ * An editor extension update replaces the whole directory and the patch with it;
+ * `--ensure`, wired to a SessionStart hook by `--install-hook`, puts it back.
  *
  * Runtime: Node.js only, no packages. If `node` is not on PATH, use the runner
  * (`run.sh` / `run.ps1`) - it borrows the Node runtime bundled inside VS Code.
@@ -66,7 +66,7 @@ import { fileURLToPath } from "node:url";
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 
 // Stable anchor: tooltip of the built-in slash-command button, present once.
-// If an update renames it, see SKILL.md ("if the layout changed").
+// If an update renames it, see references/layout-recovery.md.
 const ANCHOR = 'title:"Show command menu (/)"';
 const BACKUP_SUFFIX = ".orig";
 const btnMarker = (id) => `/*CC-BTN:${id}*/`;
@@ -77,11 +77,12 @@ const CAN_PROP = "__ccCan";
 const ANY_MARKER = /\/\*CC-(?:BTN:\w+|RUN|PIE)\*\//;
 const MODES = ["usage", "run", "insert"];
 
-// Tokens the CLI keeps in reserve before auto-compacting. Read out of the bundle
-// when possible (see Layout.usageReserve); this is only the fallback when that
-// read fails. It is NOT applied to our reading - the button divides by the whole
-// window - but matching the expression is how the usage signal is recognised.
-const USAGE_RESERVE = 13000;
+// What a `usage` button shows, worst to best: a plain label (the usage signal
+// was not found), the count alone (no place to switch the stock counter off),
+// or the ring plus the count. The order is what lets a degraded button be
+// swapped for a better one once the skill can read the build again.
+const LEVELS = ["plain", "count", "ring"];
+const LEVEL_TEXT = { plain: "plain label", count: "count only", ring: "ring + count" };
 
 // Ring colour: a muted sage below this many tokens in play, the native clay
 // orange above it. Deliberately less saturated than the orange - it is a resting
@@ -302,14 +303,18 @@ class Layout {
    * reports the model's **whole** window (`contextWindow`, e.g. 1M), not the
    * stock counter's usable remainder (minus max output, minus the auto-compact
    * reserve, e.g. 923k). A round, recognisable number is what the figure is for -
-   * and it is the same denominator `/context` itself prints. The reserve is still
-   * parsed out of the expression, because matching it is what proves this is the
-   * usage expression and not some other pair of props.
+   * and it is the same denominator `/context` itself prints.
+   *
+   * The proof is the two fields the button actually reads, both read by the
+   * toolbar itself: nothing else is required of the build. Requiring the stock
+   * counter's whole window arithmetic as well cost the ring on 2.1.280, which
+   * merely moved that arithmetic into a helper - so the reserve is read for the
+   * --verify report only, and not finding it costs nothing.
    */
   readUsage(src, fnStart, sigEnd) {
     this.session = null;
     this.hasUsage = false;
-    this.usageReserve = USAGE_RESERVE;
+    this.usageReserve = null; // informational: what the stock counter held back
     this.modelSignals = [];
     this.pieOffAt = null; // where to switch the built-in counter off
 
@@ -323,10 +328,9 @@ class Layout {
     const body = src.slice(sigEnd, Math.min(src.length, this.spacerEnd + 3000));
     const value = `${escapeRe(this.session)}\\.usageData\\.value`;
     if (!new RegExp(`${value}\\.totalTokens`).test(body)) return;
-    const reserve = this.readReserve(src, body, value);
-    if (reserve === null) return;
+    if (!new RegExp(`${value}\\.contextWindow`).test(body)) return;
 
-    this.usageReserve = reserve;
+    this.usageReserve = this.readReserve(src, body, value);
     this.hasUsage = true;
 
     // Signals naming the model in play, for the fallback window. Optional like
@@ -339,16 +343,12 @@ class Layout {
 
   /**
    * The auto-compact reserve in the stock counter's window expression, or null
-   * when the expression is not there. Two shapes are known:
+   * when it cannot be read. Only --verify prints it. Two shapes are known:
    *
    *   inline (<= 2.1.27x):  <v>.contextWindow-<v>.maxOutputTokens-13000
    *   helper (2.1.280+):    fn(<v>.contextWindow,<v>.maxOutputTokens)
    *                         function fn($,J){return $-Math.min(J,CAP)-RES}
    *                         var RES=13000
-   *
-   * In the helper shape the call alone is the proof; the helper's body is read
-   * only for the figure --verify prints. A helper the minifier reshaped falls
-   * back to USAGE_RESERVE instead of costing the ring.
    */
   readReserve(src, body, value) {
     const inline = body.match(new RegExp(`${value}\\.contextWindow-${value}\\.maxOutputTokens-(\\d+)`));
@@ -358,10 +358,10 @@ class Layout {
     if (!call) return null;
     const fn = src.match(new RegExp(
       `function ${escapeRe(call[1])}\\(([\\w$]+),([\\w$]+)\\)\\{return \\1-Math\\.min\\(\\2,[\\w$]+\\)-([\\w$]+|\\d+)\\}`));
-    if (!fn) return USAGE_RESERVE;
+    if (!fn) return null;
     if (/^\d+$/.test(fn[3])) return Number(fn[3]);
     const res = src.match(new RegExp(`(?:var|let|const) ${escapeRe(fn[3])}=(\\d+)[;,]`));
-    return res ? Number(res[1]) : USAGE_RESERVE;
+    return res ? Number(res[1]) : null;
   }
 
   /**
@@ -682,7 +682,97 @@ function trialEdits(lay, buttons) {
 
 /** Does this set of buttons put the ring on our own button? */
 function wantsRing(buttons, lay) {
-  return Boolean(lay.jsxs && lay.pieOffAt !== null) && buttons.some(([, , mode]) => mode === "usage");
+  return usageLevel(lay) === "ring" && buttons.some(([, , mode]) => mode === "usage");
+}
+
+/** The best a `usage` button can show on this layout (see LEVELS). */
+function usageLevel(lay) {
+  if (!lay.hasUsage) return "plain";
+  return lay.jsxs && lay.pieOffAt !== null ? "ring" : "count";
+}
+
+/* ---------------------------------------------------- buttons already there */
+
+/**
+ * [start, end) of one of our buttons: the marker, the element, and the comma
+ * buildButtonJs puts after it. Throws LayoutError on anything shaped otherwise:
+ * then it is not ours to take apart.
+ */
+function buttonSpan(src, id) {
+  const marker = btnMarker(id);
+  const at = src.indexOf(marker);
+  if (at < 0) return null;
+  const from = at + marker.length;
+  const head = /^([\w$]+)\("button",\{/.exec(src.slice(from, from + 80));
+  if (!head) throw new LayoutError(`button '${id}' is not shaped the way this skill writes it`);
+  const end = callEnd(src, from + head[1].length);
+  if (src[end] !== ",") throw new LayoutError(`button '${id}' does not end the way this skill writes it`);
+  return [at, end + 1];
+}
+
+/** What one of our buttons shows now (see LEVELS), or null if it is not there. */
+function buttonLevel(src, id) {
+  const span = buttonSpan(src, id);
+  if (!span) return null;
+  const code = src.slice(span[0], span[1]);
+  if (code.includes('("svg",')) return "ring";
+  if (code.includes(".usageData")) return "count";
+  return "plain";
+}
+
+/** buttonLevel for a report: never throws. */
+function describeLevel(src, id) {
+  try {
+    return buttonLevel(src, id) || "missing";
+  } catch (exc) {
+    if (exc instanceof LayoutError) return "unrecognised";
+    throw exc;
+  }
+}
+
+/**
+ * `usage` buttons that went in showing less than this build allows: a skill
+ * that could not read the build put a plain label in, the skill has learnt it
+ * since, and the button would otherwise stay plain until the next extension
+ * update - the self-heal only checks that a button is there. The judge is the
+ * pristine bundle, the same one --verify reads. A button this skill did not
+ * write, or a layout it cannot read, is left alone.
+ */
+function staleButtons(src, original, buttons) {
+  const usage = buttons.filter(([id, , mode]) => mode === "usage" && src.includes(btnMarker(id)));
+  if (usage.length === 0) return [];
+  let best;
+  try {
+    best = LEVELS.indexOf(usageLevel(new Layout(original)));
+  } catch (exc) {
+    if (exc instanceof LayoutError) return [];
+    throw exc;
+  }
+  return usage.filter(([id]) => {
+    const now = describeLevel(src, id);
+    return LEVELS.includes(now) && LEVELS.indexOf(now) < best;
+  });
+}
+
+/**
+ * Take our own buttons back out. Returns the source without them and, per id,
+ * the offset in that source where each one sat - which is where its
+ * replacement goes. What is left is again "original + our insertions", so
+ * --revert stays exact.
+ */
+function stripButtons(src, ids) {
+  const spans = ids.map((id) => [id, ...buttonSpan(src, id)]).sort((a, b) => a[1] - b[1]);
+  const at = new Map();
+  let out = "";
+  let from = 0;
+  let removed = 0;
+  for (const [id, start, end] of spans) {
+    out += src.slice(from, start);
+    at.set(id, start - removed);
+    removed += end - start;
+    from = end;
+  }
+  return { src: out + src.slice(from), at };
 }
 
 /** Apply [offset, js] edits back-to-front so earlier offsets stay valid. */
@@ -907,26 +997,38 @@ function writeLedger(version, entry) {
  * scripts) skip the search. Never consulted for *which* bundle to patch - an
  * extension update creates a new directory and a stale hit would be patched
  * silently - only for speed and diagnostics.
+ *
+ * `facts` holds what this run learnt per bundle; a field it leaves undefined
+ * keeps its previous value as long as the file itself is unchanged. Otherwise
+ * a --where or a --status would wipe what --ensure knows (`refused`,
+ * `checkedBy`), and the next session start would re-read and re-report a build
+ * it had already dealt with.
  */
 function saveState(bundles, roots, facts) {
   try {
     fs.mkdirSync(STATE_DIR, { recursive: true });
+    const previous = new Map((readJson(STATE_FILE, {}).bundles || []).map((b) => [b.path, b]));
     const state = {
       updated: new Date().toISOString().slice(0, 10),
       platform: `${process.platform}-${process.arch}`,
       runtime: process.execPath,
       runtimeIsElectron: Boolean(process.versions.electron),
       extensionRoots: roots,
-      bundles: bundles.map((b) => ({
-        path: b,
-        version: extensionVersion(b),
-        backup: isFile(backupOf(b)),
+      bundles: bundles.map((b) => {
         // Identity of the file we last looked at, so --ensure can tell "still
         // the bundle I patched" from "replaced by an update" without reading
         // five megabytes on every session start.
-        ...fileStamp(b),
-        ...((facts && facts.get(b)) || {}),
-      })),
+        const stamp = fileStamp(b);
+        const old = previous.get(b);
+        const same = old && old.size === stamp.size && old.mtimeMs === stamp.mtimeMs;
+        const known = {};
+        for (const key of ["patched", "buttons", "refused", "checkedBy"]) {
+          const now = facts && facts.get(b) ? facts.get(b)[key] : undefined;
+          if (now !== undefined) known[key] = now;
+          else if (same && old[key] !== undefined) known[key] = old[key];
+        }
+        return { path: b, version: extensionVersion(b), backup: isFile(backupOf(b)), ...stamp, ...known };
+      }),
     };
     fs.writeFileSync(STATE_FILE, JSON.stringify(state, null, 2) + "\n", "utf8");
     fs.writeFileSync(RUNTIME_HINT, process.execPath + "\n", "utf8");
@@ -1019,15 +1121,18 @@ function verifyBundle(bundle, buttons) {
     }
   }
 
+  const wantsUsage = buttons.some(([, , mode]) => mode === "usage");
   if (lay.hasUsage) {
     const ring = wantsRing(buttons, lay)
       ? "ring drawn (0-100 sweep), stock counter off"
-      : "text only (no place to switch the stock counter off)";
+      : "count only (the ring cannot be placed on this build)";
+    const reserve =
+      lay.usageReserve === null ? "reserve not read, informational only" : `reserves ${lay.usageReserve} + max output`;
     console.log(
       `  usage:   live from ${lay.session}.usageData, full window as the denominator ` +
-        `(stock counter reserves ${lay.usageReserve} + max output); ${ring}`
+        `(stock counter ${reserve}); ${ring}`
     );
-  } else if (buttons.some(([, , mode]) => mode === "usage")) {
+  } else if (wantsUsage) {
     console.log("  usage:   live figure NOT found in this build - the button falls back to a plain label");
   }
 
@@ -1042,7 +1147,15 @@ function verifyBundle(bundle, buttons) {
     return false;
   }
   console.log("  parse:   trial patch parses cleanly");
-  console.log("  SAFE TO PATCH");
+  // Safe, but not what the user asked for: say so in the verdict itself, where
+  // the protocol looks, not only in the usage line above it.
+  const level = usageLevel(lay);
+  if (wantsUsage && level !== "ring") {
+    const what = level === "plain" ? "a plain label, no count and no ring" : "the count without its ring";
+    console.log(`  SAFE TO PATCH - DEGRADED: ${what} (see references/layout-recovery.md)`);
+  } else {
+    console.log("  SAFE TO PATCH");
+  }
   return true;
 }
 
@@ -1068,24 +1181,38 @@ function patchBundle(bundle, buttons, side, dryRun, base = "current") {
     );
   }
 
+  // A usage button showing less than this build allows is replaced in place:
+  // the one way a skill fix reaches a bundle that was patched before the fix.
+  const stale = staleButtons(src, original, buttons);
+  const staleIds = stale.map(([id]) => id);
   for (const [buttonId] of buttons) {
-    if (src.includes(btnMarker(buttonId))) console.log(`  [=] button '${buttonId}' already present`);
+    if (!src.includes(btnMarker(buttonId))) continue;
+    if (staleIds.includes(buttonId)) {
+      const now = LEVEL_TEXT[describeLevel(src, buttonId)];
+      console.log(`  [^] button '${buttonId}' (${now}) - this build allows more, replacing it`);
+    } else {
+      console.log(`  [=] button '${buttonId}' already present`);
+    }
   }
   let pending = buttons.filter(([id]) => !src.includes(btnMarker(id)));
-  if (pending.length === 0) return;
+  if (pending.length === 0 && stale.length === 0) return;
 
+  const holes = stripButtons(src, staleIds);
+  src = holes.src;
   const lay = new Layout(src);
   console.log(`  [i] ${lay.describe()}`);
-  pending = resolveModes(pending, lay, (id) =>
-    console.log(`  [!] button '${id}': live context % not found in this build, using a plain label`)
-  );
+  const downgrade = (id) =>
+    console.log(`  [!] button '${id}': live context % not found in this build, using a plain label`);
+  pending = resolveModes(pending, lay, downgrade);
+  const replacing = resolveModes(stale, lay, downgrade);
+  const all = [...pending, ...replacing];
 
   const edits = [];
-  if (pending.some(([, , mode]) => mode === "run" || mode === "usage") && !src.includes(RUN_MARKER)) {
+  if (all.some(([, , mode]) => mode === "run" || mode === "usage") && !src.includes(RUN_MARKER)) {
     edits.push(...buildRunPlumbing(lay));
     console.log("  [+] run plumbing (onRunSlash prop + command-registry handler)");
   }
-  if (wantsRing(pending, lay) && !src.includes(PIE_MARKER)) {
+  if (wantsRing(all, lay) && !src.includes(PIE_MARKER)) {
     edits.push([lay.pieOffAt, buildPieOffJs()]);
     console.log("  [+] stock usage counter switched off (our button carries the ring)");
   }
@@ -1094,6 +1221,10 @@ function patchBundle(bundle, buttons, side, dryRun, base = "current") {
   for (const [buttonId, text, mode] of pending) {
     edits.push([where, buildButtonJs(buttonId, text, mode, lay)]);
     console.log(`  [+] button '${buttonId}' -> ${mode} '${text}' (slot: ${side})`);
+  }
+  for (const [buttonId, text, mode] of replacing) {
+    edits.push([holes.at.get(buttonId), buildButtonJs(buttonId, text, mode, lay)]);
+    console.log(`  [+] button '${buttonId}' -> ${mode} '${text}' (in its old place)`);
   }
 
   const added = edits.reduce((sum, [, js]) => sum + js.length, 0);
@@ -1112,7 +1243,20 @@ function patchBundle(bundle, buttons, side, dryRun, base = "current") {
     fs.copyFileSync(bundle, backup);
     console.log(`  [b] backup -> ${path.basename(backup)}`);
   }
-  fs.writeFileSync(bundle, src, "utf8");
+  try {
+    fs.writeFileSync(bundle, src, "utf8");
+  } catch (exc) {
+    // A write that dies halfway (a full disk) leaves a truncated bundle, and
+    // the checks below only run after a write that finished. Put the original
+    // back now: a missing button beats a chat that does not open.
+    let restored = "restored from backup";
+    try {
+      fs.copyFileSync(backup, bundle);
+    } catch {
+      restored = "could not restore it either; if the chat does not open, run --revert";
+    }
+    throw new Fatal(`writing the bundle failed (${exc.message}) - ${restored}`);
+  }
 
   // Re-read what actually landed on disk: catches truncated/garbled writes.
   const written = fs.readFileSync(bundle, "utf8");
@@ -1132,8 +1276,9 @@ function patchBundle(bundle, buttons, side, dryRun, base = "current") {
     date: new Date().toISOString().slice(0, 10),
     symbols: lay.symbols(),
     // What the bundle actually carries now, not what this run asked for: an
-    // earlier run's buttons are still in there and belong in the record.
-    buttons: describeButtons(markersIn(written), buttons, extensionVersion(bundle)),
+    // earlier run's buttons are still in there and belong in the record, and a
+    // `usage` button that went in as a plain label is recorded as `run`.
+    buttons: describeButtons(markersIn(written), [...buttons, ...all], extensionVersion(bundle)),
     side,
     sha1_pristine: sha1(original),
   });
@@ -1151,69 +1296,113 @@ function patchBundle(bundle, buttons, side, dryRun, base = "current") {
  *
  *   - the state cache holds size+mtime of every bundle we patched, so the check
  *     is a handful of stat() calls; the 5 MB bundle is not read at all,
- *   - only a bundle whose fingerprint moved (i.e. an update landed) is opened,
+ *   - only a bundle whose fingerprint moved (i.e. an update landed) is opened -
+ *     or every bundle once after this script itself changed, since a new
+ *     version may read a build the old one could not,
+ *   - a button that went in without its ring is swapped for the full one as
+ *     soon as the script can draw it (see staleButtons),
  *   - it prints nothing when there is nothing to do, and never exits non-zero:
  *     a hook that fails loudly on every session start would be worse than the
- *     problem it solves.
+ *     problem it solves. What needs a human - no button, or no ring - goes to
+ *     the agent once per build (see reportToAgent), not every session.
  *
  * A lock keeps two editor windows starting at once from writing the same file.
  */
 function ensureBundles(bundles, roots, buttons, side) {
   const wanted = buttons.map(([id]) => id);
   const cached = new Map((readJson(STATE_FILE, {}).bundles || []).map((b) => [b.path, b]));
+  const me = patcherId();
 
   const suspect = bundles.filter((bundle) => {
     const known = cached.get(bundle);
-    if (!known || !known.patched) return true;
+    if (!known || known.checkedBy !== me) return true;
     const stamp = fileStamp(bundle);
     if (stamp.size !== known.size || stamp.mtimeMs !== known.mtimeMs) return true;
+    if (known.refused) return false; // already refused and reported; nothing changed since
+    if (!known.patched) return true;
     return !wanted.every((id) => (known.buttons || []).includes(id));
   });
 
   if (suspect.length === 0) return 0; // fast path: stat only, nothing read
 
   return withLock(() => {
-    // Carry over what is already known about the bundles we are not touching,
-    // otherwise they would lose their fast path and be re-read every time.
+    // Bundles we do not touch keep what is known about them: saveState carries
+    // it over while their files are unchanged.
     const facts = new Map();
-    for (const [file, known] of cached) {
-      if (bundles.includes(file) && !suspect.includes(file) && known.patched) {
-        facts.set(file, { patched: true, buttons: known.buttons || [] });
-      }
-    }
-    let restored = 0;
+    const notes = [];
     for (const bundle of suspect) {
+      const version = extensionVersion(bundle);
       try {
-        const src = fs.readFileSync(bundle, "utf8");
-        const present = markersIn(src);
-        if (wanted.every((id) => present.includes(id))) {
-          facts.set(bundle, { patched: true, buttons: present });
-          continue;
+        const [original] = pristineSource(bundle);
+        let src = fs.readFileSync(bundle, "utf8");
+        const complete = wanted.every((id) => src.includes(btnMarker(id)));
+        if (!complete || staleButtons(src, original, buttons).length) {
+          if (!verifyQuietly(bundle, buttons)) {
+            const ids = markersIn(src);
+            facts.set(bundle, { patched: ids.length > 0, buttons: ids, refused: true, checkedBy: me });
+            notes.push(refusedNote(version, complete));
+            continue;
+          }
+          patchQuietly(bundle, buttons, side);
+          src = fs.readFileSync(bundle, "utf8");
         }
-        if (!verifyQuietly(bundle, buttons)) {
-          console.error(
-            `[context-meter] ${extensionVersion(bundle)}: layout changed, not patching automatically ` +
-              "(run --verify)"
-          );
-          continue;
+        facts.set(bundle, { patched: true, buttons: markersIn(src), refused: false, checkedBy: me });
+        for (const [id, , mode] of buttons) {
+          const level = describeLevel(src, id);
+          if (mode === "usage" && (level === "plain" || level === "count")) notes.push(degradedNote(version, id, level));
         }
-        patchQuietly(bundle, buttons, side);
-        const after = markersIn(fs.readFileSync(bundle, "utf8"));
-        facts.set(bundle, { patched: true, buttons: after });
-        restored += 1;
       } catch (exc) {
-        console.error(`[context-meter] ${path.basename(extensionDir(bundle))}: ${exc.message}`);
+        // Read-only extension folder, a deleted backup: nothing that fixes itself
+        // by the next session start. Report once, like a refusal; a new file or
+        // a new version of this script brings it up again.
+        facts.set(bundle, { refused: true, checkedBy: me });
+        notes.push(
+          `${NOTE_TAG} ${path.basename(extensionDir(bundle))}: ${exc.message}. ` +
+            "Tell the user in one line and offer to look into it with the vscode-claude-chat-context-meter skill."
+        );
       }
     }
     saveState(bundles, roots, facts);
-    if (restored) {
-      console.log(
-        `[context-meter] button restored after a Claude Code update ` +
-          `(${suspect.map(extensionVersion).join(", ")}) - reload the window to see it`
-      );
-    }
+    reportToAgent(notes);
     return 0;
   });
+}
+
+const NOTE_TAG = "[vscode-claude-chat-context-meter]";
+
+function refusedNote(version, hadButton) {
+  return (
+    `${NOTE_TAG} Claude Code ${version} rewrote the chat toolbar, so the context button ` +
+    (hadButton ? "could not be brought up to date" : "was not put back after the update") +
+    ". Tell the user in one line and offer to fix it with the vscode-claude-chat-context-meter skill " +
+    "(--verify first, then step 3 of its protocol)."
+  );
+}
+
+function degradedNote(version, id, level) {
+  const what =
+    level === "plain"
+      ? "a plain label, no count and no ring: the skill cannot read this build's usage signal"
+      : "the count without its ring: the usage signal is read, but the skill cannot place the ring on this build";
+  return (
+    `${NOTE_TAG} On Claude Code ${version} the '${id}' button shows ${what}. ` +
+    "Tell the user in one line and offer to fix it with the " +
+    "vscode-claude-chat-context-meter skill (step 3 of its protocol). Once the skill reads the build " +
+    "again, the next session start puts the ring back by itself."
+  );
+}
+
+/**
+ * Hand what needs a human to the agent. The hook runs in the background, and a
+ * background hook has one way back: the JSON response's `systemMessage`, which
+ * Claude Code gives to Claude on the next turn. Checked with two canaries in
+ * one headless session: the JSON one reached the model, plain stdout did not -
+ * so the plain "button restored" line printed here before never reached anyone.
+ * One JSON object on stdout, and nothing else there; nothing when all is well.
+ */
+function reportToAgent(notes) {
+  if (notes.length === 0) return;
+  process.stdout.write(JSON.stringify({ systemMessage: notes.join("\n") }) + "\n");
 }
 
 /** Preflight without the report: same checks, no output. */
@@ -1285,6 +1474,27 @@ function withLock(fn) {
 // dry run against a sandbox directory possible.
 const SETTINGS_FILE = path.join(STATE_DIR, "settings.json");
 const SELF = path.join(HERE, "patch_claude_code_ui.mjs");
+
+let patcherIdMemo = null;
+
+/**
+ * Identity of this very script, kept per bundle in the state cache as
+ * `checkedBy`. A skill update does not touch the bundle, so its fingerprint
+ * cannot tell --ensure that a newer script might now read a build (or draw a
+ * ring) the old one could not. Only a run that did the stale check (--ensure,
+ * or an actual patch) writes it: a --status or --verify must not vouch for a
+ * bundle it never looked at that way.
+ */
+function patcherId() {
+  if (patcherIdMemo === null) {
+    try {
+      patcherIdMemo = sha1(fs.readFileSync(SELF, "utf8"));
+    } catch {
+      patcherIdMemo = "unknown";
+    }
+  }
+  return patcherIdMemo;
+}
 // How our entry is recognised among the user's other hooks, on any platform.
 const HOOK_TAG = "patch_claude_code_ui.mjs";
 
@@ -1422,7 +1632,7 @@ function markersIn(src) {
  * ones added earlier are looked up in the ledger, and fall back to a bare id.
  */
 function describeButtons(presentIds, buttons, version) {
-  const specs = new Map(buttons.map(([id, text, mode]) => [id, `${id}:${text}:${mode}`]));
+  const specs = new Map(buttons.map(([id, text, mode]) => [id, `${id}:${text}:${mode}`])); // last one wins
   const previous = readLedger()[version];
   for (const spec of (previous && previous.buttons) || []) {
     const id = String(spec).split(":")[0];
@@ -1445,13 +1655,25 @@ function revertBundle(bundle) {
   console.log(`  [-] restored from backup, ${path.basename(backup)} removed`);
 }
 
-function statusBundle(bundle) {
+function statusBundle(bundle, buttons) {
   const src = fs.readFileSync(bundle, "utf8");
   const found = markersIn(src);
   const known = readLedger()[extensionVersion(bundle)];
   const hits = countOccurrences(src, ANCHOR);
   console.log(`  version: ${extensionVersion(bundle)}` + (known ? ` (last patched ${known.date})` : " (not in ledger)"));
-  console.log(`  buttons: ${found.length ? found.join(", ") : "(none - unpatched)"}`);
+  const listed = found.map((id) => `${id} (${LEVEL_TEXT[describeLevel(src, id)] || describeLevel(src, id)})`);
+  console.log(`  buttons: ${found.length ? listed.join(", ") : "(none - unpatched)"}`);
+  if (found.length) {
+    let stale = [];
+    try {
+      stale = staleButtons(src, pristineSource(bundle)[0], buttons).map(([id]) => id);
+    } catch (exc) {
+      if (!(exc instanceof LayoutError)) throw exc;
+    }
+    if (stale.length) {
+      console.log(`  upgrade: ${stale.join(", ")} can show more on this build - run the patch again, or let the hook do it`);
+    }
+  }
   console.log(`  run mode: ${src.includes(RUN_MARKER) ? "wired" : "no"}`);
   console.log(`  backup:  ${isFile(backupOf(bundle)) ? "yes" : "no"}`);
   console.log(`  anchor:  ${hits === 1 ? "ok" : `${hits} hits - LAYOUT CHANGED`}`);
@@ -1487,7 +1709,8 @@ const HELP = `Add buttons to the Claude Code chat composer (VS Code and forks).
 
   --verify                 preflight this build; writes nothing but the path cache
   --ensure                 quiet self-heal (for a SessionStart hook): re-patch
-                           only if an extension update wiped the button
+                           when an extension update wiped the button, and put
+                           the ring back on one that went in without it
   --install-hook           wire --ensure to a SessionStart hook, so the button
                            comes back by itself after a Claude Code update
   --uninstall-hook         remove that hook again
@@ -1504,7 +1727,8 @@ const HELP = `Add buttons to the Claude Code chat composer (VS Code and forks).
   --forget                 drop this machine's cached paths
   -h, --help               this text
 
-Env: CCM_EXT_DIR (extensions dir), CCM_STATE_DIR (where local state lives).`;
+Env: CCM_EXT_DIR, CCM_EXT_DIR_EXTRA (extra extensions dirs, path-list),
+     CCM_STATE_DIR (where local state and the hook's settings.json live).`;
 
 function parseArgs(argv) {
   const opts = {
@@ -1579,6 +1803,10 @@ function parseArgs(argv) {
         throw new Fatal(`unknown argument ${JSON.stringify(arg)} (try --help)`);
     }
   }
+  // One id, one button: a repeated id would splice two buttons into one hole.
+  const ids = opts.buttons.map(([id]) => id);
+  const twice = ids.find((id, i) => ids.indexOf(id) !== i);
+  if (twice) throw new Fatal(`button id ${JSON.stringify(twice)} given twice - every --button needs its own id`);
   return opts;
 }
 
@@ -1605,6 +1833,8 @@ function main(argv) {
   // Before anything that prints: a hook must stay silent and must not fail the
   // session start, even when no editor is installed at all.
   if (opts.ensure) {
+    // --ensure exists to write; a "rehearsal" of it would patch for real.
+    if (opts.dryRun) throw new Fatal("--ensure cannot be rehearsed - use --verify, or --dry-run without --ensure");
     if (bundles.length === 0) return 0;
     return ensureBundles(bundles, roots, buttons, opts.side);
   }
@@ -1629,6 +1859,7 @@ function main(argv) {
     return 1;
   }
 
+  const checked = new Set(); // bundles this run patched, i.e. put through the stale check
   let failed = false;
   for (const bundle of bundles) {
     console.log(path.basename(extensionDir(bundle)));
@@ -1636,7 +1867,7 @@ function main(argv) {
       if (opts.verify) {
         failed = !verifyBundle(bundle, buttons) || failed;
       } else if (opts.status) {
-        statusBundle(bundle);
+        statusBundle(bundle, buttons);
       } else if (opts.revert) {
         // --dry-run means "write nothing", and that has to hold for the
         // destructive commands too, not just for patching.
@@ -1651,6 +1882,7 @@ function main(argv) {
         // that is what is on disk anyway, and in a dry run it is what lets the
         // rehearsal show the actual plan instead of "already present".
         patchBundle(bundle, buttons, opts.side, opts.dryRun, opts.reapply ? "pristine" : "current");
+        if (!opts.dryRun) checked.add(bundle);
       }
     } catch (exc) {
       if (!(exc instanceof LayoutError)) throw exc;
@@ -1666,7 +1898,9 @@ function main(argv) {
     for (const bundle of bundles) {
       try {
         const present = markersIn(fs.readFileSync(bundle, "utf8"));
-        facts.set(bundle, { patched: present.length > 0, buttons: present });
+        // Undefined keeps the previous value (see saveState).
+        const checkedBy = checked.has(bundle) ? patcherId() : undefined;
+        facts.set(bundle, { patched: present.length > 0, buttons: present, checkedBy });
       } catch {}
     }
   }

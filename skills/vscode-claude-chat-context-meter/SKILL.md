@@ -38,6 +38,9 @@ change the patcher, not to run it.
 ## Protocol (mandatory, do not reorder)
 
 You are patching **someone's installed extension** that they use every day.
+**Patch only when they asked for the button** — to add it, bring it back, change
+it or fix it. A plain question like "how much context is left" gets an answer and
+an offer of the button, not a patch: nothing is written before they ask for it.
 Breaking it breaks their daily driver, so the steps are exactly these:
 
 **1. Preflight — always first, writes nothing but a path cache:**
@@ -72,18 +75,25 @@ the flags as they are.
 It checks the extension version (and whether it was patched before — see the
 `verified-versions.json` ledger), that the backup is clean, that the whole
 toolbar structure is where it should be, and it **builds a trial patch and
-parses it**. The answer is either `SAFE TO PATCH` or `UNSAFE: <what did not match>`.
+parses it**. The answer is `SAFE TO PATCH`, `SAFE TO PATCH - DEGRADED: <what is
+missing>` (the button works, but without its ring) or `UNSAFE: <what did not match>`.
 
-**2. `SAFE TO PATCH` → apply:** the same command without `--verify`.
+**2. `SAFE TO PATCH` → apply:** the same command without `--verify`. With
+`DEGRADED`, apply too — a plain button beats none — and then carry on with step 3.
 
 **3. `UNSAFE` / `ABORTED` → do NOT patch blindly and do NOT hand-edit the bundle.**
-In that order:
+`DEGRADED` comes here too, once step 2 has put the button in. A message tagged
+`[vscode-claude-chat-context-meter]` from the self-heal hook is the same news
+arriving unasked — an update left the button missing or without its ring; the
+user is busy with something else, so tell them in one line and offer this
+procedure rather than starting it. In that order:
 
-1. **Tell the user in one line** that the toolbar was rewritten in the new
-   extension build and that you are working it out — do not go silent until you
+1. **Tell the user in one line** that the new extension build moved something the
+   button depends on and that you are working it out — do not go silent until you
    have a result, and do not ask for permission first.
 2. **Work it out yourself** using `references/layout-recovery.md`: find the new
-   anchor, the new insertion points, and confirm the command registry is still there.
+   anchor, the new insertion points, and confirm the command registry is still there
+   — or, for `DEGRADED`, where the toolbar reads the usage signal now.
 3. **Fix the skill's own files** (the anchor and regexes in the `Layout` class,
    the edit table in `references/internals.md`) so the patch works again, and
    **say what you changed**. Treat that edit as local and temporary: the skill
@@ -91,6 +101,7 @@ In that order:
    overwrite it. Offer to send the fix upstream as an issue or a pull request —
    a re-taught anchor is exactly what every other user needs too.
 4. Go back to step 1, apply, and report what changed in the extension and in the skill.
+   A button that went in degraded gets its ring from that run — no `--revert` first.
 
 Only escalate to the user if the structure fundamentally rules out the old
 behaviour (the command registry is gone, there is nowhere to put a button) — then
@@ -111,8 +122,11 @@ then you say the button will need a manual run after each update.
 confirm the button is there and works (you cannot click it for them).
 
 If anything goes wrong at any step, `--revert` restores the original from the
-backup. Last resort with no backup: reinstall the extension in VS Code
-(Extensions → Claude Code → Uninstall → Install); settings and sessions survive that.
+backup. **When the user wants the patch gone** ("undo the patch"), that is
+`--revert` plus `--uninstall-hook`: with the hook in place, the next session start
+puts the button straight back. Last resort with no backup: reinstall the extension
+in VS Code (Extensions → Claude Code → Uninstall → Install); settings and sessions
+survive that.
 
 ## How to run it
 
@@ -153,10 +167,11 @@ this skill compacts, clears or restarts anything on its own — if you are asked
 user, not something the button did.
 
 If the usage signal cannot be located in a build, the button degrades — ring →
-text-only → plain `run` button — rather than failing. `--verify` says which of the
-three you are getting. A button put in degraded stays that way: once the skill
-reads the signal again, `--reapply` brings the ring back — the hook will not, since
-the button is already there.
+count only → plain `run` button — rather than failing. `--verify` says which of the
+three you are getting, `--status` says what each button shows now. A degraded
+button does not stay that way: once the skill reads the signal again (a fix, or an
+update of the skill), the next run or session start swaps the full button in, in
+the same place.
 
 Everything else about the reading — the denominator, the colours, the ring
 geometry, how the window size is recovered on a fresh session, the startup race —
@@ -173,7 +188,8 @@ After `run.sh` / `run.ps1` / the script name:
 … --ensure                          # quiet self-heal; what the SessionStart hook runs
 … --install-hook                    # wire that hook up (see "Surviving updates")
 … --uninstall-hook                  # take it out again
-… --revert                          # restore the original
+… --revert                          # restore the original (the hook would put the button back:
+                                    #   "undo the patch" means --revert AND --uninstall-hook)
 … --reapply                         # revert, then patch again from the clean original
                                     #   (also how you CHANGE an existing button's mode)
 … --dry-run                         # build and validate, write nothing (also neuters --revert/--reapply
@@ -195,7 +211,11 @@ button), `run` (execute the command; the default for a hand-written `--button`)
 and `insert` (only type the text). `usage` reports the **context window**, so it
 only makes sense on a `/context` button — that is why it is not the parse default.
 A button that already exists is left alone by id, so **changing its mode needs
-`--reapply`**, not a second run.
+`--reapply`**, not a second run. The one exception: a run asking for `usage`
+replaces a same-id button that shows less (plain or count only) in place. The
+self-heal hook always asks for the default `context` button in `usage` mode, so
+the id `context` is taken: a custom `/context` button needs an id of its own, or
+the hook turns it back into the ring.
 
 **Every Claude Code install found gets the same treatment** — the run is per bundle,
 not per editor. `--ext-dir` *adds* a directory to the search, it does not replace
@@ -221,7 +241,18 @@ breath, so the user knows how to undo it.
 prints nothing); only a bundle whose fingerprint moved is reopened and re-patched;
 a lock file keeps two editor windows starting at once from writing one bundle; and
 it never exits non-zero, because a hook that fails loudly every morning would be
-worse than the problem it solves.
+worse than the problem it solves. After the skill itself changes, it re-reads each
+bundle once — that is how a fix reaches a button that went in plain.
+
+It stays silent unless something needs a human: a build it would not patch, or a
+button it could only put in without the ring. Then it says so **once per build**,
+as the hook's `systemMessage`, which Claude Code hands to you, the agent, on the next
+turn — do not assume the user has seen it. Pass it on in one line and offer step 3
+of the protocol.
+
+**The hook restores the default button only** — `context`, in the `slash` slot.
+Custom buttons and a button moved with `--side` do not come back after an extension
+update; say so when you add one.
 
 **What it cannot do:** the webview is already loaded by the time a session starts,
 so a freshly restored button appears **at the next window reload**. In practice the
@@ -233,7 +264,8 @@ update itself asks for a reload, and the hook usually gets there first.
 bundle found. The patched file is `webview/index.js` inside the extension, its backup
 is `index.js.orig` beside it, and everything this machine keeps (path cache, its own
 ledger entries, the lock) lives in `~/.claude/` — never in the skill folder, which may
-be a git clone. `--forget` drops the cache; it never decides *which* bundle to patch,
+be a git clone. `CCM_STATE_DIR` moves all of it, and the `settings.json` the hook goes
+into with it. `--forget` drops the cache; it never decides *which* bundle to patch,
 so a stale entry cannot survive an extension update. Details in
 `references/internals.md`.
 

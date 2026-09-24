@@ -1,8 +1,8 @@
-# When the layout changed (`UNSAFE` / `LAYOUT CHANGED`)
+# When the layout changed (`UNSAFE` / `LAYOUT CHANGED` / `DEGRADED`)
 
 Read this when `--verify` refused: the toolbar was rewritten in a new extension
 build, and the job is to find the new anchor and re-teach it to the `Layout` class
-in the patcher.
+in the patcher. When it only lost the reading (`DEGRADED`), skip to "When only the reading is gone" below.
 
 **First rule out the cheap cause.** A refusal that names one symbol
 (`no CSS-module object (className:X.menuButton)`, `no text-insertion callback`)
@@ -47,6 +47,36 @@ the anchor — the `slash` slot is measured from it, (4) the same
 `findCommandByLabel`/`executeCommand` in the registry (without them only `insert`
 mode remains). All of the binding lives in the `Layout` class — nothing else in the
 script needs touching. After editing: `--verify` again, and only then patch.
+
+## When only the reading is gone (`DEGRADED`)
+
+`SAFE TO PATCH - DEGRADED` means the toolbar is fine and the button works — it is
+the usage signal the probes lost. `Layout.readUsage` and `readPie` need three
+things, and `--verify` tells you which one failed: `session=-` in its `layout:`
+line is (1); a named session with a usage line saying `NOT found` is (2);
+`count only` is (3):
+
+1. `session:<name>` in the toolbar's signature (`function <toolbar>({…})`);
+2. that name read as `<name>.usageData.value.totalTokens` **and**
+   `<name>.usageData.value.contextWindow` somewhere between the signature and just
+   past the spacer — anything else around them is irrelevant, including the stock
+   counter's own arithmetic;
+3. for the ring: the stock counter called as `<h>(<Counter>,{usedTokens:` in that
+   stretch, and `function <Counter>({…}){` within 400 chars of its name — its body
+   is where `return null` goes. Without it you get the count alone, not a plain label.
+   The ring also needs the toolbar's array-children helper; `jsxs=-` in the
+   `layout:` line means that probe missed, with the same `count only` verdict.
+
+```bash
+grep -oE '[[:alnum:]_$]*\.usageData\.value\.(totalTokens|contextWindow)' "$BUNDLE" | sort | uniq -c
+#   2.1.280:  1 $.usageData.value.contextWindow / 2 $.usageData.value.totalTokens
+grep -o '.\{60\}usedTokens:.\{80\}' "$BUNDLE" | head   # the stock counter: its definition and the toolbar's call
+```
+
+Re-teach whichever probe missed, `--verify` until the verdict loses `DEGRADED`,
+then run the patch: a button that went in plain is swapped for the full one in
+place, no `--revert` needed. Every other machine gets the same once the fix ships:
+the hook re-reads each bundle after the skill updates.
 
 Whatever you re-teach here is an edit to **someone's installed copy** of the skill,
 which may be a git clone or managed by an installer that overwrites it on the next

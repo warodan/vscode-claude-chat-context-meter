@@ -60,7 +60,7 @@ not match>`. Custom buttons for any slash command work the same way, in any of t
 | When to wrap up | **orange past 256k tokens or 60% of the window** |
 | Acts on its own | **no — it shows the number, you decide** |
 | Custom buttons | **any slash command, three slots, three modes** |
-| Survives extension updates | **yes — a SessionStart hook restores it** |
+| Survives extension updates | **yes, the default button — a SessionStart hook restores it** |
 | Undo | **`--revert`, byte-exact from the backup** |
 | Requires API keys | **no** |
 | External dependency | **none — one dependency-free script, nothing to install** |
@@ -182,7 +182,8 @@ built and parsed without being written.
 undo the patch, I want the extension back the way it was
 ```
 
-`--revert` restores the pristine bundle from the backup taken before the first write.
+`--revert` restores the pristine bundle from the backup taken before the first write, and
+`--uninstall-hook` takes the self-heal hook out — otherwise the next session would put the button back.
 
 Or call it explicitly:
 
@@ -222,17 +223,21 @@ flowchart LR
    the session's usage signal to feed its own counter, so it re-renders on every change — the label
    is one division inside that render. The CLI updates that signal on every assistant message of the
    main loop, which is why both halves move mid-answer.
-6. **Degrade, never fail.** On a build where the usage signal cannot be located the button falls back
-   to a plain run button, and to text-only if just the ring is missing. `--verify` says which of the
-   three you are getting.
+6. **Degrade, never fail — and heal back.** On a build where the usage signal cannot be located the
+   button falls back to a plain run button, and to the count alone if just the ring is missing.
+   `--verify` says which of the three you are getting. It does not stay that way: once an updated skill
+   can read the build, the next session start swaps the full button in, in the same place.
 
 ### Surviving extension updates
 
 `--install-hook` writes a SessionStart hook into `~/.claude/settings.json` that runs a quiet
 self-heal in the background. On the boring path it is a couple of `stat` calls against a fingerprint
 cache — about 80 ms, all of it Node startup, and it prints nothing. Only a bundle whose fingerprint
-moved is reopened and re-patched. A lock file keeps two editor windows starting at once from writing
-the same file, `settings.json` is backed up before any write, other people's hooks are never touched,
+moved is reopened and re-patched — plus every bundle once after the skill itself updates, which is
+how a fix puts the ring back on a button that went in without it. When the hook cannot restore the
+button, or can only restore it without the ring, it tells your agent once per build, and the agent
+tells you. A lock file keeps two editor windows starting at once from writing
+the same file, `settings.json` is backed up before the first write, other people's hooks are never touched,
 and the hook never exits non-zero — a session that reports a failure every morning would be worse
 than the problem it solves. The restored button appears at the **next window reload**; in practice
 the update asks for one anyway.
@@ -281,6 +286,10 @@ vscode-claude-chat-context-meter/          # the repository
   preflight refuse rather than guess, because a broken bundle means the Claude Code chat does not
   open at all. Nothing is written without a passing `--verify` and a validated backup, but the
   honest summary is: this is a patch, not an integration.
+- **The hook brings back the default button only.** After an extension update it restores the context
+  ring in its default slot; custom buttons, or a button moved with `--side`, need another request to
+  your agent. The id `context` belongs to that default button: a custom button under that id is turned
+  back into the ring.
 - **A restored button shows up at the next window reload.** The webview is already loaded by the time
   a session starts, so the self-heal cannot bring it back into a window that is already open.
 - **Only what the bundle already has.** The button can reach registry commands, text insertion and
@@ -295,6 +304,9 @@ vscode-claude-chat-context-meter/          # the repository
 - **Extension builds move fast.** Everything is derived from the bundle rather than hardcoded, and the
   ledger ships every build already worked out, currently up to 2.1.280 — but a genuinely restructured
   toolbar needs the skill's anchor re-taught, which is a documented procedure rather than an automatic one.
+  A build that only moves the usage signal leaves you a plain `/context` button, no count and no ring,
+  until an updated skill can read it; the next session start after that update puts the ring back, no
+  `--reapply` needed.
 
 ## License
 

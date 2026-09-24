@@ -52,8 +52,8 @@ reports it, e.g. `1M` — deliberately **not** the stock counter's usable remain
 is what makes the reading recognisable at a glance, and it is the same figure
 `/context` itself prints. The consequence, which is fine but worth knowing: our
 percentage is a few points **lower** than the stock counter's would have been on
-the same tokens. The reserve is still parsed out of the bundle — matching that
-expression is how the usage signal is recognised — it is just not applied.
+the same tokens. The reserve is read out of the bundle for the `--verify` report
+only, and never applied.
 
 Why two figures rather than one: the **ring** needs the window size, which the CLI
 only sends with a completed turn, while the **token count** is there from the first
@@ -71,9 +71,22 @@ carries ~5 px of slack, so both leave dead space to the left of the ring — vis
 the moment the hover background is. Nothing but the flex spacer sits to its right,
 so a width that follows the count moves nothing.
 
-On a build where the usage signal cannot be located, the button silently degrades
-to a plain `run` button, and if only the ring is missing, to text alone. `--verify`
-says which of the three you are getting.
+On a build where the usage signal cannot be located, the button degrades to a
+plain `run` button, and if only the ring is missing, to the count alone. Not
+silently: `--verify` ends in `SAFE TO PATCH - DEGRADED: …`, `--status` prints
+what each button shows, and the self-heal hook tells the agent once per build.
+
+**A degraded button heals itself.** 2.1.280 is why: the hook put a plain label in
+while the skill could not read that build, the skill was fixed the same evening,
+and the label stayed — the hook only checked that a button was *there*. Now every
+run compares what a `usage` button shows (`buttonLevel`: an `"svg"` element means
+the ring, a `.usageData` read means the count) with what the pristine bundle
+allows, and a button showing less is **taken out and put back in its old place**.
+That is our own insertion, so the bundle stays "original + insertions" and
+`--revert` stays exact; the upgraded bundle is byte-identical to a fresh patch of
+the same build. The hook gets there because its fast path is keyed on the
+patcher's own hash (`checkedBy`) as well as the bundle's fingerprint: after a skill
+update it re-reads every bundle once.
 
 **Startup race (already handled — do not reintroduce).** Slash commands only enter
 the registry once the CLI sends `claudeConfig.commands`; for the first fraction of
@@ -109,7 +122,12 @@ None of this needs doing by hand — but know it is there, and do not work aroun
 | A `run` button is disabled until its command is registered | the startup race — "text typed instead of executed" |
 | The path cache never decides **which** bundle to patch | patching a stale extension version after an update |
 | `--verify` rehearses through **one** `applyEdits` pass, exactly as the patch does | a rehearsal that is not the real thing: splicing the button in first shifts every later offset (the toolbar's call site is ~38 KB further down), so the plumbing lands somewhere else. A rehearsal that splices the button in separately can pass on a build that would not patch |
-| The live reading degrades — ring → text-only → plain button — as pieces go missing | losing the whole button over an optional nicety |
+| The live reading degrades — ring → count only → plain button — as pieces go missing | losing the whole button over an optional nicety |
+| The usage signal is recognised by the two fields the button reads, not by the stock counter's arithmetic | a cosmetic refactor costing the ring (2.1.280 moved that arithmetic into a helper, and the button went plain) |
+| A `usage` button showing less than the build allows is replaced in place, by a manual run or by `--ensure` | a plain label outliving the skill fix that could have drawn the ring |
+| `--ensure` re-checks a bundle whenever the patcher's hash differs from the one that last checked it (`checkedBy`) | a skill update never reaching a bundle whose fingerprint did not move |
+| `--ensure` remembers a refused build per fingerprint | re-reading five megabytes and repeating the same report on every session start |
+| `--ensure` reports through a JSON `systemMessage`, never plain stdout | a report nobody sees: plain stdout of a background hook does not reach the model (checked with two canaries) |
 | The stock counter is silenced by an inserted `return null`, never by rewriting its hide-test | a botched rewrite of an expression we do not own; and `--revert` stays exact |
 | `--ensure` holds a lock file while writing | two editor windows starting at once and rewriting one bundle |
 | `--ensure` never exits non-zero | a session start that reports a failure every time something is off |
@@ -227,14 +245,17 @@ b(Pie, { usedTokens: <session>.usageData.value.totalTokens,
 - Since 2.1.280 the subtraction lives in a helper:
   `contextWindow: fn(<session>.usageData.value.contextWindow, <session>.usageData.value.maxOutputTokens)`
   with `function fn($,J){return $-Math.min(J,CAP)-RES}` and `var RES=13000`.
-  `Layout.readReserve` accepts both shapes and follows `RES` to its number. The
-  call itself is the proof: a helper it cannot read falls back to 13000 and keeps
-  the ring.
 - `<session>` = the name bound to `session:` in the toolbar's signature.
-- We take `totalTokens` and `contextWindow` from it and **skip the subtraction** —
-  the button divides by the whole window (see above). The reserve (`13000`) is
-  still **parsed out of that expression**, not hardcoded, because matching it is
-  what identifies the expression; `--verify` prints the number it found.
+- **What proves the signal** is exactly what the button reads: the toolbar body
+  reading both `<session>.usageData.value.totalTokens` and
+  `<session>.usageData.value.contextWindow`. Nothing more is required. Requiring
+  the whole subtraction is what cost the ring on 2.1.280 — the fields were all
+  still there, only the arithmetic had moved into the helper.
+- We take `totalTokens` and `contextWindow` and **skip the subtraction** — the
+  button divides by the whole window (see above). `Layout.readReserve` still reads
+  the reserve out of either shape (following `RES` to its number) for the line
+  `--verify` prints; when it cannot, that line says "reserve not read" and nothing
+  else changes.
 - Writes to the signal: `updateUsage()` on every `type:"assistant"` message without
   `parent_tool_use_id` (so mid-turn, main loop only — subagent traffic is excluded),
   and `type:"result"` at the end of a turn, which is what carries `contextWindow`
