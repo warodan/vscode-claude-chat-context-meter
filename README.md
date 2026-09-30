@@ -17,6 +17,13 @@ The extension has no API for this: the button is injected into its webview bundl
 
 ---
 
+> **On Windows with VS Code, use [vscode-claude-code-patch](https://github.com/warodan/vscode-claude-code-patch) instead.**
+> It replaces this skill there: the same ring, plus image previews and open buttons under file paths in
+> the chat, and composer buttons that survive extension updates. This skill stays for macOS, Linux and
+> the editors the new one does not search yet (VS Code Insiders, Cursor, Windsurf, VSCodium, remote
+> installs): the ring alone. The two do not run side by side; moving over takes four steps:
+> [migrate-from-v1.md](https://github.com/warodan/vscode-claude-code-patch/blob/main/skills/vscode-claude-code-patch/references/migrate-from-v1.md).
+
 ## What it does
 
 <img src="assets/composer.png" width="720" alt="The Claude Code composer in VS Code: the + and / buttons, then a ring with the count 61k next to them, and the permission-mode selector and the send button on the right.">
